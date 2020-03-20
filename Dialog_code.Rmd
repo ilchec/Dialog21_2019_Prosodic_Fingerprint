@@ -1,6 +1,8 @@
 ---
 title: "Prosodic Fingerprint"
-output: html_notebook
+output:
+  html_document:
+    df_print: paged
 ---
 
 ```{r message = FALSE, error = FALSE, warning = FALSE, fig.width=20,fig.height=10}
@@ -9,6 +11,7 @@ library(plyr)
 library(ggplot2)
 library(effects)
 library(lmerTest)
+library(Hmisc)
 ```
 
 
