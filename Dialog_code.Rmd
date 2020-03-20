@@ -1,0 +1,340 @@
+---
+title: "Prosodic Fingerprint"
+output: html_notebook
+---
+
+```{r message = FALSE, error = FALSE, warning = FALSE, fig.width=20,fig.height=10}
+library(tidyverse)
+library(plyr)
+library(ggplot2)
+library(effects)
+library(lmerTest)
+```
+
+
+## Data preprocessing
+```{r message = FALSE, error = FALSE, warning = FALSE, fig.width=20,fig.height=10}
+Unigram_data <- read_csv2("Unigrams.csv")
+Unigram_data <- Unigram_data[-which(Unigram_data$Speaker_ID == "Speaker_ID"),]
+nrow(Unigram_data)
+Unigram_data$Time_s <- as.double(Unigram_data$Time_s)
+Unigram_data$Abs_value <- as.double(Unigram_data$Abs_value)
+Unigram_data$Age <- as.double(Unigram_data$Age)
+Unigram_data$Sex <- as.factor(Unigram_data$Sex)
+#The functions define the boundaries of unigrams
+cut_unigram <- function(Abs_value){
+  unigrams <- cut(Abs_value, breaks = 3, labels = c(-1,0,1))
+  return(unigrams)
+}
+cut_unigram_raw <- function(Abs_value){
+  unigrams <- cut(Abs_value, breaks = 3)
+  return(unigrams)
+}
+
+# Ordering the data by speaker
+Unigram_data <- Unigram_data[order(Unigram_data$Speaker_ID),]
+# Normalizing (Z-scaling the) absolute pitch value 
+Unigram_data$zAbs_value <- ave(as.numeric(Unigram_data$Abs_value), Unigram_data$Speaker_ID, FUN=scale)
+# Cutting the unigrams into intervals
+zUnigram_cut <- with(Unigram_data, tapply(zAbs_value, Speaker_ID,cut_unigram_raw))
+zUnigram_raw <- c()
+
+#Attaching normalized dataand intervals to the other data
+for (element in zUnigram_cut){
+  zUnigram_raw <- c(zUnigram_raw,as.character(element))
+}
+Unigram_data <- cbind(Unigram_data,zUnigram_raw)
+
+#Counting z-normalized unigrams
+zUnigram_cut <- with(Unigram_data, tapply(zAbs_value, Speaker_ID,cut_unigram))
+zUnigram <- c()
+for (element in zUnigram_cut){
+  zUnigram <- c(zUnigram,as.character(element))
+}
+Unigram_data <- cbind(Unigram_data,zUnigram)
+Unigram_data$Unigram <- as.factor(Unigram_data$Unigram)
+Unigram_data$zUnigram <- as.factor(Unigram_data$zUnigram)
+#levels(Unigram_data$zUnigram)
+
+#Calculating deltas and normalized deltas
+zDelta <- diff(as.numeric(zUnigram))
+zDelta <- c(NA,zDelta)
+Unigram_data <- cbind(Unigram_data,zDelta)
+Delta <- diff(as.numeric(Unigram_data$Unigram))
+Delta <- c(NA,Delta)
+
+#attaching the deltas to the data
+Unigram_data <- cbind(Unigram_data,Delta)
+Unigram_data$Delta <- as.factor(Unigram_data$Delta)
+Unigram_data$zDelta <- as.factor(Unigram_data$zDelta)
+
+# Creating unique ID's for each sentence
+Unigram_data <- cbind(paste(Unigram_data$Speaker_ID,Unigram_data$Sentence),Unigram_data)
+colnames(Unigram_data)[1] <- "ID"
+Unigram_data$ID <- as.factor(Unigram_data$ID)
+#Unigram_data$Unigram <- as.factor(Unigram_data$Unigram)
+
+# Counting raw unigrams
+df <- with(Unigram_data, tapply(Unigram, ID, plyr::count))
+Raw_Ug_Counted <- ldply(df, data.frame)
+Raw_Ug_Counted <- spread(Raw_Ug_Counted, x, freq)
+colnames(Raw_Ug_Counted)[1] <- "ID"
+
+Raw_Ug_Counted$Speaker_ID <- Unigram_data$Speaker_ID[match(Raw_Ug_Counted$ID, Unigram_data$ID)]
+Raw_Ug_Counted$Sex <- Unigram_data$Sex[match(Raw_Ug_Counted$ID, Unigram_data$ID)]
+Raw_Ug_Counted$Age <- Unigram_data$Age[match(Raw_Ug_Counted$ID, Unigram_data$ID)]
+Raw_Ug_Counted$Place <- Unigram_data$Place[match(Raw_Ug_Counted$ID, Unigram_data$ID)]
+Raw_Ug_Counted$Text <- Unigram_data$Text[match(Raw_Ug_Counted$ID, Unigram_data$ID)]
+Raw_Ug_Counted$Sentence <- Unigram_data$Sentence[match(Raw_Ug_Counted$ID, Unigram_data$ID)]
+
+#Counting raw deltas
+bdf <- with(Unigram_data, tapply(Delta, ID, plyr::count), default = 0)
+Raw_Dlt_Counted <- ldply(bdf, data.frame)
+Raw_Dlt_Counted <- spread(Raw_Dlt_Counted, x, freq)
+colnames(Raw_Dlt_Counted)[1] <- "ID"
+
+Raw_Dlt_Counted$Speaker_ID <- Unigram_data$Speaker_ID[match(Raw_Ug_Counted$ID, Unigram_data$ID)]
+Raw_Dlt_Counted$Sex <- Unigram_data$Sex[match(Raw_Ug_Counted$ID, Unigram_data$ID)]
+Raw_Dlt_Counted$Age <- Unigram_data$Age[match(Raw_Ug_Counted$ID, Unigram_data$ID)]
+Raw_Dlt_Counted$Place <- Unigram_data$Place[match(Raw_Ug_Counted$ID, Unigram_data$ID)]
+Raw_Dlt_Counted$Text <- Unigram_data$Text[match(Raw_Ug_Counted$ID, Unigram_data$ID)]
+Raw_Dlt_Counted$Sentence <- Unigram_data$Sentence[match(Raw_Ug_Counted$ID, Unigram_data$ID)]
+
+#Counting z-normalised Unigrams
+zdf <- with(Unigram_data, tapply(zUnigram, ID, plyr::count))
+zUg_Counted <- ldply(zdf, data.frame)
+zUg_Counted <- spread(zUg_Counted, x, freq)
+zUg_Counted[is.na(zUg_Counted)] <- 0
+colnames(zUg_Counted)[1] <- "ID"
+
+zUg_Counted$Speaker_ID <- Unigram_data$Speaker_ID[match(Raw_Ug_Counted$ID, Unigram_data$ID)]
+zUg_Counted$Sex <- Unigram_data$Sex[match(Raw_Ug_Counted$ID, Unigram_data$ID)]
+zUg_Counted$Age <- Unigram_data$Age[match(Raw_Ug_Counted$ID, Unigram_data$ID)]
+zUg_Counted$Place <- Unigram_data$Place[match(Raw_Ug_Counted$ID, Unigram_data$ID)]
+zUg_Counted$Text <- Unigram_data$Text[match(Raw_Ug_Counted$ID, Unigram_data$ID)]
+zUg_Counted$Sentence <- Unigram_data$Sentence[match(Raw_Ug_Counted$ID, Unigram_data$ID)]
+
+#Counting z-normalized Deltas
+zbdf <- with(Unigram_data, tapply(zDelta, ID, plyr::count))
+zDlt_Counted <- ldply(zbdf, data.frame)
+zDlt_Counted <- spread(zDlt_Counted, x, freq)
+zDlt_Counted[is.na(zDlt_Counted)] <- 0
+colnames(zDlt_Counted)[1] <- "ID"
+
+zDlt_Counted$Speaker_ID <- Unigram_data$Speaker_ID[match(Raw_Ug_Counted$ID, Unigram_data$ID)]
+zDlt_Counted$Sex <- Unigram_data$Sex[match(Raw_Ug_Counted$ID, Unigram_data$ID)]
+zDlt_Counted$Age <- Unigram_data$Age[match(Raw_Ug_Counted$ID, Unigram_data$ID)]
+zDlt_Counted$Place <- Unigram_data$Place[match(Raw_Ug_Counted$ID, Unigram_data$ID)]
+zDlt_Counted$Text <- Unigram_data$Text[match(Raw_Ug_Counted$ID, Unigram_data$ID)]
+zDlt_Counted$Sentence <- Unigram_data$Sentence[match(Raw_Ug_Counted$ID, Unigram_data$ID)]
+```
+
+## Exploratory plots
+
+Figure 1. Pitch sub-ranges in a recording sample
+```{r message = FALSE, error = FALSE, warning = FALSE, fig.width=20,fig.height=10}
+Unigram_data$Time_s <- as.numeric(Unigram_data$Time_s)
+Unigram_data$Abs_value <- as.numeric(Unigram_data$Abs_value)
+Unigram_data$ID <- as.character(Unigram_data$ID)
+subset(Unigram_data, Unigram_data$ID %in% c("AnnaSh 2")) %>% 
+  ggplot(aes(Time_s, Abs_value))+
+  xlab("Time")+
+  ylab("Pitch Value")+
+  geom_hline(aes(yintercept=85.56109814999999), color = "red")+
+  geom_hline(aes(yintercept=220.06107974516), color = "blue")+
+  geom_hline(aes(yintercept=354.56106134032), color = "blue")+
+  geom_hline(aes(yintercept=489.06104293548003), color = "red")+
+  annotate(geom="text", x = 1, 
+           y = 75.56109814999999, label = "Outliers", colour='red', size = 3) +
+  annotate(geom="text", x = 1, 
+           y = 150, label = "-1", colour='blue', size = 4) +
+  annotate(geom="text", x = 1, 
+           y = 300, label = "0", colour='blue', size = 4) +
+  annotate(geom="text", x = 1, 
+           y = 450, label = "1", colour='blue', size = 4) +
+  annotate(geom="text", x = 1, 
+           y = 498.06104293548003, label = "Outliers", colour='red', size = 3) +
+  #xlim(min(Unigram_data[Unigram_data$ID == "AnnaSh 10",]$Time_s), max(Unigram_data[Unigram_data$ID == "AnnaSh 10",]$Time_s))+
+  xlim(93.5,96.5)+
+  geom_line()+
+  #facet_wrap(. ~ ID)+
+  theme_bw() -> Fig1
+```
+
+```{r message = FALSE, error = FALSE, warning = FALSE, fig.width=20,fig.height=10}
+Fig1
+```
+
+### Figure 2 (corrected age groups). The Distribution of the z-scored Unigram Values by Place, Sex and Age
+
+After the text was published, I noticed a small mistake in the group names. The age groups should be named "≤40" instead of "25-40" and ">40" instead of "45+". The mistake follows from the data collection protocol that we developed at some point. Since the current case study is partly based on the data collected before the protocol was established, the speakers could not be divided into such groups and I used 40 years as the cut-off point, but the plot titles and the description in the text were not changed accordingly. The mistake does not affect the counts and modelling. This grouping is only used for convenience in barplots, where age cannot be treated as a numeric variable; the models treat in as numeric. In the two plots below, the mistake has been corrected.
+
+```{r message = FALSE, error = FALSE, warning = FALSE, fig.width=20,fig.height=10}
+Unigram_data <- mutate(Unigram_data, Age_Group = as.factor(ifelse(Unigram_data$Age <= 40,"25-40 (corrected: ≤ 40 )","45+ (corrected: >40)")))
+Unigram_data$Place_1 <- factor(Unigram_data$Place, levels = c("Krasnoyarsk", "Nakhodka", "Novosibirsk", "Moscow" ))
+subset(Unigram_data, !is.na(zUnigram)) %>% 
+  ggplot(aes(zUnigram, color=Place, fill=Place))+
+  geom_bar(stat = "count", position="dodge")+
+  xlab("Distribution of unigrams by Place, Sex and Age")+
+  ylab("Number of unigrams of each type")+
+  facet_wrap(~Place_1:Sex:Age_Group) -> Fig2
+```
+
+```{r message = FALSE, error = FALSE, warning = FALSE, fig.width=20,fig.height=10}
+Fig2
+```
+
+### Figure 3 (corrected age groups). The Distribution of the z-scored Delta Values by Place, Sex and Age
+```{r message = FALSE, error = FALSE, warning = FALSE, fig.width=20,fig.height=10}
+zhist <- subset(Unigram_data, !is.na(zDelta))
+zhist <- zhist[zhist$zDelta != 0,]
+subset(zhist, !is.na(zDelta)) %>% 
+  ggplot(aes(zDelta, color=Place, fill=Place))+
+  geom_bar(stat = "count", position="dodge")+
+  xlab("Distribution of deltas by Place, Sex and Age")+
+  ylab("Number of deltas of each type")+
+  facet_wrap(~Place_1:Sex:Age_Group) -> Fig3
+```
+
+```{r message = FALSE, error = FALSE, warning = FALSE, fig.width=20,fig.height=10}
+Fig3
+```
+
+
+
+
+### Adjusting the unigram data for modelling
+```{r message = FALSE, error = FALSE, warning = FALSE, fig.width=20,fig.height=10}
+data_ug <- zUg_Counted
+row.names(data_ug) <- paste(data_ug$Speaker_ID,data_ug$Sentence)
+data_ug$X1prop <- data_ug$"-1"/(data_ug$"0" + data_ug$"1" + data_ug$"-1" + 1)
+data_ug <- mutate(data_ug, TextType = as.factor(ifelse(grepl("Experiment",Text),"dialogue","monologue")))
+data_ug <- mutate(data_ug, Role = as.factor(ifelse(grepl("Follower",Text),"hearer","speaker")))
+data_ug$Age_Group<-c("Low", "High")[
+  findInterval(data_ug$Age , c(-Inf, 40, Inf) ) ]
+data_ug$Text <- as.factor(data_ug$Text)
+data_ug$Sex <- as.factor(data_ug$Sex)
+data_ug$Age_Group <- as.factor(data_ug$Age_Group)
+```
+
+### The same for deltas
+```{r message = FALSE, error = FALSE, warning = FALSE, fig.width=20,fig.height=10}
+data_dlt <- zDlt_Counted
+row.names(data_dlt) <- paste(data_dlt$Speaker_ID,data_dlt$Sentence)
+data_dlt$X0prop <- (data_dlt$"0")/(data_dlt$"1" + data_dlt$"-1" + data_dlt$"2" + data_dlt$"-2" + data_dlt$"0" + 1)
+data_dlt <- mutate(data_dlt, TextType = as.factor(ifelse(grepl("Experiment",Text),"dialogue","monologue")))
+data_dlt <- mutate(data_dlt, Role = as.factor(ifelse(grepl("Follower",Text),"hearer","speaker")))
+data_dlt$Age_Group<-c("Low", "High")[
+  findInterval(data_dlt$Age , c(-Inf, 40, Inf) ) ]
+data_dlt$Text <- as.factor(data_dlt$Text)
+data_dlt$Sex <- as.factor(data_dlt$Sex)
+data_dlt$Age_Group <- as.factor(data_dlt$Age_Group)
+```
+
+## Modelling
+
+### Model for -1 vs. other unigrams
+
+```{r message = FALSE, error = FALSE, warning = FALSE, fig.width=20,fig.height=10}
+Data_counted <- data_ug
+summary(model.0 <- lmer(X1prop ~ Sex*Age + Place + TextType + (1 | Speaker_ID), data = Data_counted, control = lmerControl(optimizer = "bobyqa")))
+drop1(model.0, test = "Chisq") # The Sex:Age interaction can be dropped
+summary(model.1 <- lmer(X1prop ~ Sex + Age + Place + TextType + (1 | Speaker_ID), data = Data_counted, control = lmerControl(optimizer = "bobyqa")))
+drop1(model.1, test = "Chisq") # Place can be dropped
+summary(model.2 <- lmer(X1prop ~ Sex + Age + TextType + (1 | Speaker_ID), data = Data_counted, control = lmerControl(optimizer = "bobyqa")))
+drop1(model.2, test = "Chisq") # Age can be dropped
+anova(model.1, model.2) # No significant difference between the models
+summary(model.3 <- lmer(X1prop ~ Sex + TextType + (1 | Speaker_ID), data = Data_counted, control = lmerControl(optimizer = "bobyqa")))
+drop1(model.3, test = "Chisq") # Nothing can be dropped, still test against a simpler model
+summary(model.4 <- lmer(X1prop ~ Sex + (1 | Speaker_ID), data = Data_counted, control = lmerControl(optimizer = "bobyqa")))
+drop1(model.4, test = "Chisq")
+anova(model.3, model.4) # Model 3 is significantly better, so use it as the final model
+```
+
+### Figure 4. The effect of biological sex and text type on the proportion of “−1” unigrams to “not −1” unigrams
+```{r message = FALSE, error = FALSE, warning = FALSE, fig.width=20,fig.height=10}
+plot(allEffects(model.3))
+```
+
+### Model for 0 vs. other deltas
+```{r message = FALSE, error = FALSE, warning = FALSE, fig.width=20,fig.height=10}
+Data_counted <- data_dlt
+summary(model.0 <- lmer(X0prop ~ Sex*Age + Place + Role + (1 | Speaker_ID), data = Data_counted, control = lmerControl(optimizer = "bobyqa")))
+drop1(model.0) # Place can be dropped
+summary(model.1 <- lmer(X0prop ~ Sex*Age + Role + (1 | Speaker_ID), data = Data_counted, control = lmerControl(optimizer = "bobyqa")))
+drop1(model.1) # Role can be dropped
+summary(model.2 <- lmer(X0prop ~ Sex*Age + (1 | Speaker_ID), data = Data_counted, control = lmerControl(optimizer = "bobyqa")))
+drop1(model.2) # The interaction is on the edge of significance, but still drop
+anova(model.1, model.2) # No significant difference between the models, select the simpler one
+summary(model.3 <- lmer(X0prop ~ Sex + Age + (1 | Speaker_ID), data = Data_counted, control = lmerControl(optimizer = "bobyqa")))
+drop1(model.3) # Age can be dropped
+summary(model.4 <- lmer(X0prop ~ Sex + (1 | Speaker_ID), data = Data_counted, control = lmerControl(optimizer = "bobyqa")))
+drop1(model.4) # Nothing can be dropped
+```
+
+### Figure 5. The effects of biological sex and age on the proportion of “0” and “not 0” deltas
+```{r message = FALSE, error = FALSE, warning = FALSE, fig.width=20,fig.height=10}
+plot(allEffects(model.4))
+```
+
+### Model for -1 vs. other unigrams by sex and age and type of text, with place as random effect
+```{r message = FALSE, error = FALSE, warning = FALSE, fig.width=20,fig.height=10}
+Data_counted <- data_ug
+summary(model.0 <- lmer(X1prop ~ Sex*Age + TextType + (1 | Place), data = Data_counted, control = lmerControl(optimizer = "bobyqa")))
+drop1(model.0, test = "Chisq") # Can't drop anything, all effects significant
+```
+
+### Figure 6. Effect of age by sex and text type on the proportion of “−1” unigrams
+```{r message = FALSE, error = FALSE, warning = FALSE, fig.width=20,fig.height=10}
+plot(allEffects(model.0))
+```
+
+### Model for 0 vs. other deltas by sex and age and type of text, with place as random effect
+
+```{r message = FALSE, error = FALSE, warning = FALSE, fig.width=20,fig.height=10}
+Data_counted <- data_dlt
+summary(model.0 <- lmer(X0prop ~ Sex*Age + TextType + (1 | Place), data = Data_counted, control = lmerControl(optimizer = "bobyqa")))
+drop1(model.0, test = "Chisq")
+summary(model.1 <- lmer(X0prop ~ Sex*Age + (1 | Place), data = Data_counted, control = lmerControl(optimizer = "bobyqa")))
+drop1(model.1, test = "Chisq")
+summary(model.2 <- lm(X0prop ~ Sex*Age, data = Data_counted))
+AIC(model.1)
+AIC(model.2) #AIC of Model 2 is greater, select Model 1
+```
+
+### Figure7. Effect of age by sex on the proportion of “0” deltas
+```{r message = FALSE, error = FALSE, warning = FALSE, fig.width=20,fig.height=10}
+plot(allEffects(model.1))
+```
+
+### Interaction Models
+
+In the next two moels we do not run model selection, because we're interested in the top-level interaction. 
+Instead, we simply explore the significance levels of the effects and their combinations.
+
+```{r message = FALSE, error = FALSE, warning = FALSE, fig.width=20,fig.height=10}
+Data_counted <- data_dlt
+Data_counted <- Data_counted[Data_counted$Place %nin% c("Moscow"),]
+Data_counted$Speaker_ID <- factor(Data_counted$Speaker_ID)
+Data_counted$Place <- factor(Data_counted$Place)
+summary(model.0 <- lm(X0prop ~ Place:Age:Sex, data = Data_counted))
+```
+
+### Figure 8. Effect of age and sex by region on the proportion of “−1” unigrams
+```{r message = FALSE, error = FALSE, warning = FALSE, fig.width=20,fig.height=10}
+plot(allEffects(model.0))
+```
+
+```{r message = FALSE, error = FALSE, warning = FALSE, fig.width=20,fig.height=10}
+Data_counted <- data_ug
+Data_counted <- Data_counted[Data_counted$Place %nin% c("Moscow"),]
+Data_counted$Speaker_ID <- factor(Data_counted$Speaker_ID)
+Data_counted$Place <- factor(Data_counted$Place)
+summary(model.0 <- lm(X1prop ~ Place:Sex:Age, data = Data_counted))
+```
+
+### Figure 9. Effect of age and sex by region on the proportion of “0” deltas
+```{r message = FALSE, error = FALSE, warning = FALSE, fig.width=20,fig.height=10}
+plot(allEffects(model.0))
+```
+
